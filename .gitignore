@@ -26,3 +26,7 @@ home.sh
 # 내부 문서
 기술분석-스프라이트생성-알고리즘.md
 홍보기사.md
+
+# Fruit War 포크 — 빌드/생성물 (커밋 제외)
+ppgen.exe
+ppgen-out/

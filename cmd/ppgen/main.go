@@ -50,7 +50,7 @@ func main() {
 		dump = flag.Bool("dump", false, "프리셋+방향 카탈로그를 JSON으로 출력하고 종료")
 	)
 	flag.StringVar(&opt.desc, "desc", "a small knight with silver armor and a blue plume on the helmet", "캐릭터 설명")
-	flag.StringVar(&opt.style, "style", "pixel", "스타일 키 (pixel | chibi | cartoon | retro16)")
+	flag.StringVar(&opt.style, "style", "cartoon", "스타일 키 (pixel | chibi | cartoon | retro16) — Fruit War 포크 기본값은 매끈한 cartoon (픽셀화 안 됨)")
 	flag.StringVar(&opt.states, "states", "idle,walk", "쉼표로 구분된 생성할 상태 이름 목록")
 	flag.IntVar(&opt.percat, "percat", 0, "0보다 크면 카테고리당 N개 프리셋을 자동 선택 (states 무시)")
 	flag.BoolVar(&opt.all, "all", false, "전체 프리셋 생성 (states/percat 무시)")

@@ -125,7 +125,11 @@ func genState(ctx context.Context, p gen.Provider, opt options, style string,
 		clean := sprite.RemoveBackground(nimg)
 		ext := sprite.ExtractFrames(clean, expected, 256, 256, 24)
 		insp := sprite.InspectFrames(ext.Frames, bgKey, baseN)
-		sprite.PixelPostProcess(ext.Frames, palette)
+		// 픽셀화는 palette>0(pixel/retro16)일 때만. cartoon/chibi는 palette=0 → 매끈 유지.
+		// (generateBase 와 동일한 가드로 의도를 명시 — PixelPostProcess 내부도 0이면 no-op)
+		if palette > 0 {
+			sprite.PixelPostProcess(ext.Frames, palette)
+		}
 
 		cand := stateResult{
 			Name: spec.Name, Expected: expected, Found: ext.Found, Attempts: attempt,
