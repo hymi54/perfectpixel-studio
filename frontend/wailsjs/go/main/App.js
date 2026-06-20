@@ -74,6 +74,10 @@ export function PickImage() {
   return window['go']['main']['App']['PickImage']();
 }
 
+export function ReExtractState(arg1) {
+  return window['go']['main']['App']['ReExtractState'](arg1);
+}
+
 export function RevealInFinder(arg1) {
   return window['go']['main']['App']['RevealInFinder'](arg1);
 }

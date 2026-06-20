@@ -20,11 +20,12 @@ interface IProps {
   onUpdateState: (id: string, patch: Partial<StateDef>) => void;
   onSelect: (id: string) => void;
   onRegenerate: (id: string, feedback: string) => void;
+  onReExtract: (id: string) => void;
   onExport: () => void;
 }
 
 // 우측 메인 프리뷰 영역: 재생 / 프레임 관리 / 아틀라스
-export default function PreviewPanel({ state, allStates, directions, cellSize, busy, onUpdateState, onSelect, onRegenerate, onExport }: IProps) {
+export default function PreviewPanel({ state, allStates, directions, cellSize, busy, onUpdateState, onSelect, onRegenerate, onReExtract, onExport }: IProps) {
   const { t, lang } = useI18n();
   const [tab, setTab] = useState<ViewTab>("play");
   const [feedback, setFeedback] = useState("");
@@ -182,6 +183,11 @@ export default function PreviewPanel({ state, allStates, directions, cellSize, b
                 <div className="row">
                   <span className="hint">{t("frame_exclude_hint")}</span>
                   <span className="spacer" />
+                  {state.rawStrip && (
+                    <Button size="sm" variant="outline" disabled={busy} onClick={() => onReExtract(state.id)} title="AI 생성 없이 현재 추출 로직으로 다시 추출합니다 (API 미사용)">
+                      <RefreshCw size={12} /> 재추출
+                    </Button>
+                  )}
                   <Button size="sm" disabled={busy} onClick={() => onRegenerate(state.id, feedback)}>
                     <RefreshCw size={12} /> {t("regen_feedback")}
                   </Button>

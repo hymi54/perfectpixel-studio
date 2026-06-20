@@ -42,6 +42,12 @@ type options struct {
 	jsonOut  bool
 	quiet    bool
 	baseOnly bool
+
+	framecounts string // frame_counts.json 경로 (유닛별 프레임 수 오버라이드)
+	unit        string // framecounts JSON 내 유닛 키 (apple/banana/…)
+	dumpraw     bool   // 추출 전 clean 스트립을 <out>/raw/<state>.png 로 저장 (진단용)
+	baseimg     string // 베이스 생성 대신 이 이미지 파일을 base 로 사용 (GUI 업로드 재현용)
+	extractfile string // 생성 없이 이 raw 스트립 PNG 를 추출만 함 (분할 진단·재추출)
 }
 
 func main() {
@@ -64,6 +70,11 @@ func main() {
 	flag.BoolVar(&opt.jsonOut, "json", false, "사람이 읽는 로그 대신 결과 요약 JSON만 stdout에 출력")
 	flag.BoolVar(&opt.quiet, "quiet", false, "진행 로그 억제 (-json과 함께 쓰기 좋음)")
 	flag.BoolVar(&opt.baseOnly, "baseonly", false, "베이스 캐릭터(base.png)만 생성하고 상태/번들은 건너뜀")
+	flag.StringVar(&opt.framecounts, "framecounts", "", "프레임 수 오버라이드 JSON 경로 (Fruit War frame_counts.json 직접 소비, -unit 필요)")
+	flag.StringVar(&opt.unit, "unit", "", "-framecounts JSON 내 유닛 키 (예: apple, banana)")
+	flag.BoolVar(&opt.dumpraw, "dumpraw", false, "추출 전 clean 스트립을 <out>/raw/<state>.png 로 저장 (분할 진단용)")
+	flag.StringVar(&opt.baseimg, "baseimg", "", "베이스를 생성하지 않고 이 이미지 파일을 base 로 사용 (GUI 업로드 재현)")
+	flag.StringVar(&opt.extractfile, "extractfile", "", "생성 없이 이 raw 스트립 PNG 를 추출만 함 (-states 의 프레임 수로 분할; 분할 진단·재추출)")
 	flag.Parse()
 
 	if *dump {
@@ -151,6 +162,75 @@ func selectStates(opt options) ([]sprite.PresetInfo, error) {
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("생성할 상태가 없습니다 (-states, -percat, 또는 -all 지정)")
+	}
+	return out, nil
+}
+
+// ppgenToGameState는 ppgen 프리셋 상태명 → Fruit War(frame_counts.json) 상태명 매핑입니다.
+// ppgen_bridge.py 의 OUR_TO_PPGEN 역방향과 일관(hurt↔hit). 매핑에 없는 상태는 프리셋
+// 이름을 그대로 게임 상태명으로 사용한다(idle/walk/attack/death/victory 동일).
+var ppgenToGameState = map[string]string{
+	"hurt": "hit",
+}
+
+// applyFrameCounts는 -framecounts JSON(Fruit War frame_counts.json)에서 -unit 의 프레임 수를
+// 읽어 선택된 프리셋의 Frames 를 덮어씁니다. 유닛별 프리셋(presets.go) 수정 없이 범용화하는 용도.
+//
+// JSON 은 {"_comment": "...", "apple": {"idle":4, ...}, ...} 형태(게임 상태명 키). spawn 처럼
+// ppgen 프리셋에 없는 상태나, 해당 유닛 dict 에 없는 상태는 건너뛴다(에러 아님).
+func applyFrameCounts(presets []sprite.PresetInfo, opt options) ([]sprite.PresetInfo, error) {
+	if strings.TrimSpace(opt.framecounts) == "" {
+		return presets, nil
+	}
+	if strings.TrimSpace(opt.unit) == "" {
+		return nil, fmt.Errorf("-framecounts 사용 시 -unit 도 지정해야 합니다 (예: -unit apple)")
+	}
+	raw, err := os.ReadFile(opt.framecounts)
+	if err != nil {
+		return nil, fmt.Errorf("-framecounts 파일 읽기 실패: %w", err)
+	}
+	// _comment 값이 문자열이라 map[string]map[string]int 로 한 번에 파싱하면 실패 → RawMessage 경유.
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &all); err != nil {
+		return nil, fmt.Errorf("-framecounts JSON 파싱 실패: %w", err)
+	}
+	rawUnit, ok := all[opt.unit]
+	if !ok {
+		var keys []string
+		for k := range all {
+			if k == "_comment" {
+				continue
+			}
+			keys = append(keys, k)
+		}
+		return nil, fmt.Errorf("-unit %q 가 %s 에 없습니다 (가능: %s)", opt.unit, opt.framecounts, strings.Join(keys, ", "))
+	}
+	var counts map[string]int
+	if err := json.Unmarshal(rawUnit, &counts); err != nil {
+		return nil, fmt.Errorf("-framecounts 의 %q 유닛 파싱 실패: %w", opt.unit, err)
+	}
+
+	out := make([]sprite.PresetInfo, len(presets))
+	copy(out, presets)
+	var applied, skipped []string
+	for i := range out {
+		gameState := out[i].Name
+		if mapped, ok := ppgenToGameState[out[i].Name]; ok {
+			gameState = mapped
+		}
+		if n, ok := counts[gameState]; ok && n > 0 {
+			out[i].Frames = n
+			applied = append(applied, fmt.Sprintf("%s=%d", out[i].Name, n))
+		} else {
+			skipped = append(skipped, out[i].Name)
+		}
+	}
+	if !opt.quiet && !opt.jsonOut {
+		fmt.Printf("[framecounts] %s 프레임 수 적용: %s", opt.unit, strings.Join(applied, " "))
+		if len(skipped) > 0 {
+			fmt.Printf(" (미적용: %s)", strings.Join(skipped, " "))
+		}
+		fmt.Println()
 	}
 	return out, nil
 }

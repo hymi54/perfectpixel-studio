@@ -16,6 +16,11 @@ import (
 
 // runGen은 전체 파이프라인을 실행합니다: 베이스 생성 → 상태별 생성 → 번들 내보내기 → 요약 출력.
 func runGen(opt options) error {
+	// 추출 전용 모드: API 없이 raw 스트립 PNG 를 그대로 분할/추출한다 (분할 진단·재추출).
+	if strings.TrimSpace(opt.extractfile) != "" {
+		return runExtractOnly(opt)
+	}
+
 	p, provider, model, err := resolveProvider(opt)
 	if err != nil {
 		return err
@@ -23,6 +28,10 @@ func runGen(opt options) error {
 	var presets []sprite.PresetInfo
 	if !opt.baseOnly {
 		presets, err = selectStates(opt)
+		if err != nil {
+			return err
+		}
+		presets, err = applyFrameCounts(presets, opt)
 		if err != nil {
 			return err
 		}
@@ -44,12 +53,19 @@ func runGen(opt options) error {
 
 	style := sprite.ResolveStyle(opt.style, "")
 
-	// 1) 베이스 캐릭터
-	logf("베이스 캐릭터 생성 중... ")
+	// 1) 베이스 캐릭터 (-baseimg 지정 시 생성 대신 파일 로드 = GUI 업로드 재현)
 	t0 := time.Now()
-	baseClean, baseBytes, err := generateBase(ctx, p, opt.desc, opt.style, style)
+	var baseClean *image.NRGBA
+	var baseBytes []byte
+	if strings.TrimSpace(opt.baseimg) != "" {
+		logf("베이스 이미지 로드: %s ... ", opt.baseimg)
+		baseClean, baseBytes, err = loadBaseImage(opt.baseimg)
+	} else {
+		logf("베이스 캐릭터 생성 중... ")
+		baseClean, baseBytes, err = generateBase(ctx, p, opt.desc, opt.style, style)
+	}
 	if err != nil {
-		return fmt.Errorf("베이스 생성 실패: %w", err)
+		return fmt.Errorf("베이스 준비 실패: %w", err)
 	}
 	savePNG(filepath.Join(opt.out, "base.png"), baseClean)
 	logf("완료 (%.0fs)\n", time.Since(t0).Seconds())
@@ -77,6 +93,12 @@ func runGen(opt options) error {
 		logf("[%s] %s 생성 중... ", kw.Category, kw.Name)
 		res := genState(ctx, p, opt, style, spec, [][]byte{baseBytes}, baseClean)
 		logf("%d/%d 시도%d 점수%d (%.0fs)\n", res.Found, res.Expected, res.Attempts, res.Score, time.Since(ts).Seconds())
+		if opt.dumpraw && res.rawClean != nil {
+			rawDir := filepath.Join(opt.out, "raw")
+			_ = os.MkdirAll(rawDir, 0o755)
+			savePNG(filepath.Join(rawDir, kw.Name+".png"), res.rawClean)
+			logf("[dumpraw] %s\n", filepath.Join(rawDir, kw.Name+".png"))
+		}
 		rows = append(rows, res.row())
 		if len(res.frames) > 0 {
 			states = append(states, sprite.StateFrames{Spec: spec, Frames: res.frames})

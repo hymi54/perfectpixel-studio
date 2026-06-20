@@ -163,13 +163,71 @@ func TestEncodeGIF(t *testing.T) {
 }
 
 func TestBuildStripPrompt(t *testing.T) {
-	p := BuildStripPrompt("blue wizard", StylePresets["pixel"], StateSpec{
+	p := BuildStripPrompt("blue wizard", "pixel", StylePresets["pixel"], StateSpec{
 		Name: "walk", Frames: 6, FPS: 10, Loop: true, Action: "walking",
 	}, "make arms bigger")
 	for _, want := range []string{"exactly 6", "blue wizard", "magenta", "loops", "make arms bigger"} {
 		if !containsFold(p, want) {
 			t.Fatalf("프롬프트에 %q 누락", want)
 		}
+	}
+}
+
+// TestDoodleFacingByState는 base 캐릭터를 측면으로 전환한 정책을 검증합니다:
+// idle·victory 는 정면(front)을 명시적으로 강제하고(측면 base 를 정면으로 회전),
+// 그 외 상태(walk·attack·hit·death)는 45도 측면을 받는다.
+func TestDoodleFacingByState(t *testing.T) {
+	for _, st := range []string{"walk", "attack", "hit", "death", "run"} {
+		f := doodleFacing(st)
+		if !containsFold(f, "45 degrees") {
+			t.Errorf("doodleFacing(%q)에 45도 측면 지시가 있어야 함", st)
+		}
+	}
+	for _, st := range []string{"idle", "victory"} {
+		f := doodleFacing(st)
+		if !containsFold(f, "front view") {
+			t.Errorf("doodleFacing(%q)는 정면(front view)을 명시해야 함, got=%q", st, f)
+		}
+		if containsFold(f, "45 degrees") {
+			t.Errorf("doodleFacing(%q)에 측면 지시가 있으면 안 됨", st)
+		}
+	}
+}
+
+// TestBuildStripPromptFacingByState는 cartoon 경로에서 attack 에는 45도 측면이 들어가고
+// idle 에는 들어가지 않으며, pixel 경로에는 어느 상태든 doodle 측면이 없음을 검증합니다.
+func TestBuildStripPromptFacingByState(t *testing.T) {
+	attackCartoon := BuildStripPrompt("apple", "cartoon", StylePresets["cartoon"],
+		StateSpec{Name: "attack", Frames: 4}, "")
+	if !containsFold(attackCartoon, "45 degrees") {
+		t.Error("cartoon attack 에 45도 측면이 있어야 함")
+	}
+	idleCartoon := BuildStripPrompt("apple", "cartoon", StylePresets["cartoon"],
+		StateSpec{Name: "idle", Frames: 4}, "")
+	if containsFold(idleCartoon, "45 degrees") {
+		t.Error("cartoon idle 은 정면이라 45도 측면이 없어야 함")
+	}
+	walkPixel := BuildStripPrompt("knight", "pixel", StylePresets["pixel"],
+		StateSpec{Name: "walk", Frames: 6}, "")
+	if containsFold(walkPixel, "45 degrees") {
+		t.Error("pixel 경로에는 doodle 측면 지시가 없어야 함")
+	}
+}
+
+// TestBuildStripPromptEquipmentLock는 cartoon(doodle) 경로에는 "매 프레임 동일 장비"
+// 일관성 지시가 들어가고, pixel 경로에는 들어가지 않음을 검증합니다 (idle/walk 에서
+// 칼이 프레임마다 나타났다 사라지는 생성 일관성 문제 대응).
+func TestBuildStripPromptEquipmentLock(t *testing.T) {
+	spec := StateSpec{Name: "idle", Frames: 4, FPS: 6, Loop: true}
+
+	cartoon := BuildStripPrompt("apple warrior", "cartoon", StylePresets["cartoon"], spec, "")
+	if !containsFold(cartoon, "Equipment lock") {
+		t.Error("cartoon 경로에 'Equipment lock' 지시가 있어야 함")
+	}
+
+	pixel := BuildStripPrompt("a knight", "pixel", StylePresets["pixel"], spec, "")
+	if containsFold(pixel, "Equipment lock") {
+		t.Error("pixel 경로에는 doodle 장비 락이 없어야 함")
 	}
 }
 

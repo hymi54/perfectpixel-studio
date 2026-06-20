@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Images, Package, Plus, Settings, X } from "lucide-react";
-import { CancelGeneration, ClearSession, ExportProject, GenerateState, GetSettings, ListDirections, ListPresets, LoadSession, MirrorFrames, RevealInFinder, SaveSession } from "../wailsjs/go/main/App";
+import { CancelGeneration, ClearSession, ExportProject, GenerateState, GetSettings, ListDirections, ListPresets, LoadSession, MirrorFrames, ReExtractState, RevealInFinder, SaveSession } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import CharacterPanel from "./components/CharacterPanel";
 import GalleryModal from "./components/GalleryModal";
@@ -40,7 +40,7 @@ export default function App() {
     image: null,
     name: "",
     description: "",
-    styleKey: "pixel",
+    styleKey: "cartoon",
     styleCustom: "",
   });
   const [cellSize, setCellSize] = useState(256);
@@ -91,7 +91,7 @@ export default function App() {
               image: s.character.image ?? null,
               name: s.character.name ?? "",
               description: s.character.description ?? "",
-              styleKey: s.character.styleKey ?? "pixel",
+              styleKey: s.character.styleKey ?? "cartoon",
               styleCustom: s.character.styleCustom ?? "",
             });
           }
@@ -288,6 +288,40 @@ export default function App() {
     setProgress("");
   };
 
+  // 재추출: AI 생성 없이(API 미사용) 기존 rawStrip 을 현재 추출 로직으로 다시 분할한다.
+  const handleReExtract = async (id: string) => {
+    if (busy) return;
+    const st = statesRef.current.find((s) => s.id === id);
+    if (!st || !st.rawStrip) return;
+    setBusy(true);
+    try {
+      updateState(id, { status: "generating", error: undefined, warnings: [] });
+      const res: any = await ReExtractState({
+        rawStrip: st.rawStrip,
+        styleKey: character.styleKey,
+        cellSize: cellRef.current,
+        safeMargin: 0,
+        state: { name: st.name, frames: st.frames, fps: st.fps, loop: st.loop, action: st.action, facing: st.facing ?? "" },
+      } as any);
+      const items: FrameItem[] = (res.frames ?? []).map((png: string) => ({
+        id: uid("fr"),
+        png,
+        selected: true,
+      }));
+      updateState(id, {
+        status: items.length > 0 ? "done" : "error",
+        error: items.length > 0 ? undefined : t("err_no_frames"),
+        items,
+        warnings: res.warnings ?? [],
+      });
+    } catch (e) {
+      updateState(id, { status: "error", error: String(e) });
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  };
+
   // 8방향 세트: 5방향 AI 생성(south가 정면 레퍼런스) + 3방향 좌우 미러링
   const handleGenerateDirectionSet = async (id: string) => {
     if (busy || directions.length === 0) return;
@@ -467,7 +501,7 @@ export default function App() {
 
   const resetProject = async () => {
     setConfirmNew(false);
-    setCharacter({ image: null, name: "", description: "", styleKey: "pixel", styleCustom: "" });
+    setCharacter({ image: null, name: "", description: "", styleKey: "cartoon", styleCustom: "" });
     setStates([]);
     setSelectedId(null);
     setCellSize(256);
@@ -588,6 +622,7 @@ export default function App() {
             onUpdateState={updateState}
             onSelect={setSelectedId}
             onRegenerate={handleRegenerate}
+            onReExtract={handleReExtract}
             onExport={handleExport}
           />
         </section>

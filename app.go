@@ -298,7 +298,7 @@ func (a *App) GenerateCharacter(args GenerateCharacterArgs) (string, error) {
 		return "", errors.New("캐릭터 설명을 입력해 주세요")
 	}
 	style := sprite.ResolveStyle(args.StyleKey, args.StyleCustom)
-	prompt := sprite.BuildCharacterPrompt(args.Description, style)
+	prompt := sprite.BuildCharacterPrompt(args.Description, args.StyleKey, style)
 
 	p, err := a.provider()
 	if err != nil {
@@ -409,7 +409,7 @@ func (a *App) GenerateState(args GenerateStateArgs) (StateResult, error) {
 	var lastErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		prompt := sprite.BuildStripPrompt(args.Description, style, args.State, feedback)
+		prompt := sprite.BuildStripPrompt(args.Description, args.StyleKey, style, args.State, feedback)
 		if len(refs) > 1 {
 			prompt += "\nMotion reference: the second attached image is the FRONT-view animation strip of this same character performing this exact action. Reproduce the same motion timing and pose phases frame by frame, but viewed from the required facing direction above.\n"
 		}
@@ -518,6 +518,67 @@ func (a *App) GenerateState(args GenerateStateArgs) (StateResult, error) {
 	}
 	saveGalleryFrames(args.State.Name, bestImgs)
 	return best, nil
+}
+
+// ReExtractArgs는 재추출(생성 없이 rawStrip 재분할) 요청입니다.
+type ReExtractArgs struct {
+	RawStrip   string           `json:"rawStrip"` // 추출 전 clean 스트립 dataURL
+	StyleKey   string           `json:"styleKey"`
+	CellSize   int              `json:"cellSize"`
+	SafeMargin int              `json:"safeMargin"`
+	State      sprite.StateSpec `json:"state"`
+}
+
+// ReExtractState는 AI 생성 없이 이미 보유한 rawStrip(추출 전 스트립)을 현재 추출
+// 로직으로 다시 분할·추출합니다. 추출 알고리즘 개선 후 기존 결과를 API 없이 갱신하는
+// 용도(예: 칼 귀속 수정 반영). rawStrip 은 이미 배경 제거된 상태이므로 다시 키잉하지 않는다.
+func (a *App) ReExtractState(args ReExtractArgs) (StateResult, error) {
+	res := StateResult{Name: args.State.Name, Expected: args.State.Frames}
+	if strings.TrimSpace(args.RawStrip) == "" {
+		return res, errors.New("재추출할 raw 스트립이 없습니다 (먼저 생성해야 합니다)")
+	}
+	if args.State.Frames < 1 || args.State.Frames > 10 {
+		return res, errors.New("프레임 수는 1~10 사이여야 합니다")
+	}
+	raw, err := decodeDataURL(args.RawStrip)
+	if err != nil {
+		return res, fmt.Errorf("raw 스트립 디코드 실패: %w", err)
+	}
+	img, err := decodeImage(raw)
+	if err != nil {
+		return res, err
+	}
+	clean := sprite.ToNRGBA(img) // rawStrip 은 이미 배경 제거됨 → 재키잉 금지
+
+	expected := args.State.Frames
+	cellSize := args.CellSize
+	if cellSize <= 0 {
+		cellSize = 256
+	}
+	margin := args.SafeMargin
+	if margin <= 0 {
+		margin = max(8, cellSize/12)
+	}
+
+	extracted := sprite.ExtractFrames(clean, expected, cellSize, cellSize, margin)
+	sprite.PixelPostProcess(extracted.Frames, sprite.PaletteSizeForStyle(args.StyleKey))
+
+	res.RawStrip = args.RawStrip
+	res.Found = extracted.Found
+	res.Warnings = extracted.Warnings
+	for _, f := range extracted.Frames {
+		u, err := pngDataURL(f)
+		if err != nil {
+			return res, err
+		}
+		res.Frames = append(res.Frames, u)
+	}
+	if extracted.Found != expected {
+		res.Warnings = append(res.Warnings,
+			fmt.Sprintf("재추출 결과 프레임 수가 다릅니다 (요청 %d개 → 추출 %d개).", expected, extracted.Found))
+	}
+	saveGalleryFrames(args.State.Name, extracted.Frames)
+	return res, nil
 }
 
 // ---------- 8방향 세트 ----------

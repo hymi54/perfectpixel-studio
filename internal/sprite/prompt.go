@@ -7,11 +7,13 @@ import (
 
 // StylePresets는 선택 가능한 스타일 계약 모음입니다.
 var StylePresets = map[string]string{
-	"pixel": "low-resolution pixel-art game sprite, chunky readable silhouette, " +
-		"thick dark 1-2px outline, visible stepped pixel edges, limited color palette, " +
-		"flat cel shading with at most one highlight step and one shadow step, " +
-		"simple readable face, clear separated limbs. " +
-		"Never use painterly rendering, soft gradients, glossy lighting, anti-aliased fine detail, or 3D rendering.",
+	"pixel": "true low-resolution pixel-art game sprite, like a 32-64px sprite enlarged on the canvas, " +
+		"chunky readable silhouette, clean dark 1px outline, visible square pixel blocks, " +
+		"grid-aligned hard pixel edges, limited shared palette, solid tone clusters, " +
+		"flat color shading with at most one highlight step and one shadow step, " +
+		"simple readable face and clearly separated limbs. " +
+		"Never use painterly rendering, smooth gradients, airbrush shading, glossy lighting, " +
+		"anti-aliased fine detail, high-definition pixel art, fine-grained pixel art, anime illustration, concept art, or 3D rendering.",
 	"chibi": "cute chibi game sprite with oversized head and small body, " +
 		"bold dark outline, flat bright colors, minimal shading, large expressive eyes, " +
 		"clean cartoon shapes readable at small size. " +
@@ -39,6 +41,18 @@ func ResolveStyle(presetKey, custom string) string {
 	return StylePresets["pixel"]
 }
 
+// isPixelFamilyStyle은 픽셀아트 계열(pixel/retro16) 스타일인지 판별합니다.
+//
+// 픽셀화 후처리 게이트(PaletteSizeForStyle>0)와 동일 기준을 재사용한다:
+//   - pixel(32)·retro16(16) → true  → 원본 upstream 픽셀아트 프롬프트 경로
+//   - cartoon·chibi·custom(0) → false → Fruit War doodle(매끈) 프롬프트 경로
+//
+// 이로써 "pixel 선택 시 원본 픽셀아트 생성, cartoon 선택 시 doodle 로직" 이
+// 프롬프트 단계에서도 후처리 단계와 일관되게 분기된다.
+func isPixelFamilyStyle(styleKey string) bool {
+	return PaletteSizeForStyle(styleKey) > 0
+}
+
 // canvasContract는 키잉 캔버스 규칙을 반환합니다 (매팅 단계가 의존하는 핵심 계약).
 func canvasContract() string {
 	var b strings.Builder
@@ -47,6 +61,35 @@ func canvasContract() string {
 	b.WriteString("- The subject must avoid magenta, pink and purple entirely — clothing, props, highlights and effects included — so the keyer never eats part of the character.\n")
 	b.WriteString("- Drop every shadow and contact patch; the ground is implied, never painted.\n")
 	return b.String()
+}
+
+// spriteDesignContract는 기본 픽셀 스타일에서 요구하는 게임 스프라이트 구조를 고정합니다.
+func spriteDesignContract() string {
+	var b strings.Builder
+	b.WriteString("Game-sprite design contract:\n")
+	b.WriteString("- Interpret the subject as a game-ready character sprite, not an illustration, poster, sticker, mascot logo, or concept-art render.\n")
+	b.WriteString("- Preserve the subject's identity through a strong silhouette, hairstyle, outfit shapes, accessories, weapon or signature prop, and dominant color blocks.\n")
+	b.WriteString("- Simplify anatomy into readable sprite shapes: compact torso, clear head shape, simple arms and legs, minimal joint detail, no tiny anatomy rendering.\n")
+	b.WriteString("- Hair, clothing layers, capes, hats, weapons and accessories should read as distinct hard-edged pixel shapes, not detailed painted textures.\n")
+	b.WriteString("- Keep the face simple at sprite scale: readable eyes and mouth, minimal facial detail, no realistic nose or painted skin texture.\n")
+	return b.String()
+}
+
+// lowResPixelContract는 모델이 HD 일러스트로 도망가지 않게 렌더링 해상도 감각을 고정합니다.
+func lowResPixelContract() string {
+	var b strings.Builder
+	b.WriteString("Pixel rendering contract:\n")
+	b.WriteString("- The image must look like a 32-64px game sprite enlarged to the canvas, not newly painted at high resolution.\n")
+	b.WriteString("- Use chunky square pixel blocks, clean 1px outline, solid tone clusters, limited palette, minimal two-step flat shading.\n")
+	b.WriteString("- No dithering, no smooth gradients, no soft shadow, no blur, no airbrush, no texture, no fine hair strands, no tiny jewelry detail that would vanish at 64px.\n")
+	b.WriteString("- Every important shape must remain readable when shrunk to a thumbnail: silhouette first, details second.\n")
+	return b.String()
+}
+
+// pixelStyleContracts는 픽셀아트 계열에서 모델이 HD 일러스트로 이탈하지 않도록
+// 스프라이트 구조 + 저해상도 렌더링 계약을 결합해 반환합니다.
+func pixelStyleContracts() string {
+	return spriteDesignContract() + "\n" + lowResPixelContract()
 }
 
 // rejectClause는 추출을 방해하는 요소를 거부하는 간결한 계약입니다.
@@ -62,23 +105,61 @@ func rejectClause() string {
 }
 
 // BuildCharacterPrompt는 텍스트 설명 → 베이스 캐릭터 이미지 생성 프롬프트를 만듭니다.
-func BuildCharacterPrompt(description, style string) string {
+//
+// styleKey 로 경로를 분기한다: 픽셀아트 계열(pixel/retro16)은 원본 upstream 프롬프트,
+// 그 외(cartoon/chibi/custom)는 Fruit War doodle 프롬프트.
+func BuildCharacterPrompt(description, styleKey, style string) string {
+	if isPixelFamilyStyle(styleKey) {
+		return buildPixelCharacterPrompt(description, style)
+	}
+	return buildCartoonCharacterPrompt(description, style)
+}
+
+// buildPixelCharacterPrompt는 원본 픽셀아트 베이스 캐릭터 프롬프트입니다 (upstream 계승).
+func buildPixelCharacterPrompt(description, style string) string {
 	var b strings.Builder
-	b.WriteString("Produce one complete game-character reference sprite in a relaxed, front-facing standing pose.\n\n")
+	b.WriteString("Produce one complete game-character reference sprite in a relaxed player-avatar standing pose.\n\n")
+	fmt.Fprintf(&b, "Subject: %s.\n\n", strings.TrimSpace(description))
+	b.WriteString("Feature audit before drawing (do this internally, then render): identify and preserve the subject's hairstyle, hair color, eye color, outfit layers, accessories, weapon or signature prop, symbolic motifs, and dominant colors.\n\n")
+	fmt.Fprintf(&b, "Render contract (obey strictly): %s\n\n", style)
+	b.WriteString(pixelStyleContracts())
+	b.WriteString("\n")
+	b.WriteString("Framing:\n")
+	b.WriteString("- A single figure, head to feet, vertically centered, occupying about three quarters of the canvas height with generous breathing room on every side.\n")
+	b.WriteString("- Idle standing sprite pose: feet level, weight balanced, arms relaxed but readable.\n")
+	b.WriteString("- Almost flat 2D game-sprite view; avoid dramatic perspective, foreshortening, cinematic camera angles, and illustration-style posing.\n")
+	b.WriteString("- One continuous silhouette — nothing detached, no trailing accessories or particles.\n\n")
+	b.WriteString(canvasContract())
+	b.WriteString("\n")
+	b.WriteString(rejectClause())
+	return b.String()
+}
+
+// buildCartoonCharacterPrompt는 Fruit War doodle 베이스 캐릭터 프롬프트입니다 (매끈 cartoon).
+//
+// base 를 3/4 측면(≈45°, 우향)으로 그려 측면 상태(walk·attack·hit·death)의 레퍼런스가
+// 되게 한다. 정면 상태(idle·victory)는 doodleFacing 이 생성 시 정면으로 회전시킨다.
+func buildCartoonCharacterPrompt(description, style string) string {
+	var b strings.Builder
+	b.WriteString("Produce one complete game-character reference sprite in a relaxed standing pose, shown in 3/4 side view at about 45 degrees facing to the right (the body angled halfway between front and side, one eye and a bit of the far cheek visible).\n\n")
 	fmt.Fprintf(&b, "Subject: %s.\n\n", strings.TrimSpace(description))
 	fmt.Fprintf(&b, "Render contract (obey strictly): %s\n\n", style)
 	b.WriteString("Framing:\n")
 	b.WriteString("- A single figure, head to feet, vertically centered, occupying about three quarters of the canvas height with generous breathing room on every side.\n")
-	b.WriteString("- Symmetric A-pose: arms eased away from the torso, feet level and shoulder-width, weight balanced.\n")
+	b.WriteString("- Relaxed standing pose at a 45-degree angle to the right; any held weapon and shield are both clearly visible and not hidden behind the body.\n")
 	b.WriteString("- One continuous silhouette — nothing detached, no trailing accessories or particles.\n\n")
 	b.WriteString(canvasContract())
 	return b.String()
 }
 
 // BuildStripPrompt는 상태별 가로 스트립 생성 프롬프트를 만듭니다.
-func BuildStripPrompt(description, style string, spec StateSpec, feedback string) string {
+//
+// styleKey 로 픽셀아트 계열 여부를 판별해, 픽셀아트면 원본 픽셀 렌더링 계약을 주입하고,
+// doodle(cartoon 등)이면 상태별 doodle 모션 지시(doodleStateHint)를 추가한다.
+func BuildStripPrompt(description, styleKey, style string, spec StateSpec, feedback string) string {
 	var b strings.Builder
 	n := spec.Frames
+	pixelFamily := isPixelFamilyStyle(styleKey)
 
 	fmt.Fprintf(&b, "Draw a single horizontal row of exactly %d game-sprite poses of one character for the \"%s\" animation, ordered left to right. This is raw sprite art, not a photo or a film — draw only the character poses on a flat background.\n\n", n, spec.Name)
 
@@ -91,6 +172,10 @@ func BuildStripPrompt(description, style string, spec StateSpec, feedback string
 		fmt.Fprintf(&b, "Subject notes: %s.\n\n", d)
 	}
 	fmt.Fprintf(&b, "Render contract (obey strictly): %s\n\n", style)
+	if pixelFamily {
+		b.WriteString(pixelStyleContracts())
+		b.WriteString("\n")
+	}
 
 	if sec := FacingPromptSection(spec.Facing); sec != "" {
 		b.WriteString(sec)
@@ -104,6 +189,20 @@ func BuildStripPrompt(description, style string, spec StateSpec, feedback string
 	fmt.Fprintf(&b, "Movement: %s.\n", action)
 	if hint := MotionHint(spec.Name); hint != "" {
 		fmt.Fprintf(&b, "Choreography: %s\n", hint)
+	}
+	// doodle 전용 지시(장비 일관성 + 상태별 측면 프로필·전투 표정 등)는 cartoon 계열에서만
+	// 주입한다. 픽셀아트 경로는 원본 동작 그대로 유지.
+	if !pixelFamily {
+		// 장비 락(범용): 캐릭터별 무기를 하드코딩하지 않고 "베이스와 동일 장비를 매 프레임
+		// 유지"만 강제 → 사과(칼+방패)뿐 아니라 다른 과일 유닛에도 통용. idle/walk 에서
+		// 칼이 프레임마다 나타났다 사라지거나 손마다 칼이 복제되던 문제 대응.
+		b.WriteString("Equipment lock: every pose holds the EXACT same weapons, shield, props and held items as the reference character — same count, same hand, same type. Never add, remove, drop, duplicate, swap, or hide any item between poses; if the reference holds one weapon in one hand and a shield in the other, every single pose shows exactly that, one weapon and one shield, no extra blades and none missing.\n")
+		if fv := doodleFacing(spec.Name); fv != "" {
+			fmt.Fprintf(&b, "Facing: %s\n", fv)
+		}
+		if dh := doodleStateHint(spec.Name); dh != "" {
+			fmt.Fprintf(&b, "Doodle direction: %s\n", dh)
+		}
 	}
 	fmt.Fprintf(&b, "Treat the %d poses as evenly timed beats of one continuous motion — pose k is phase k of %d, and neighbours read as smooth in-betweens, never unrelated stances.\n", n, n)
 	if spec.Loop {

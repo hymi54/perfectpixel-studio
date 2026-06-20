@@ -21,7 +21,7 @@ var Presets = []PresetInfo{
 	// ── 기본 동작 ──
 	{"idle", "대기", "기본 동작", "subtle breathing idle standing in place", 4, 6, true, "Subtle in-place breathing cycle: gentle chest rise and fall, tiny up-down body shift of a few pixels, occasional blink. Feet stay planted in the same spot in every frame."},
 	{"idle-combat", "전투 대기", "기본 동작", "ready combat stance, weapon up, weight shifting", 4, 8, true, "Alert combat-ready idle: knees slightly bent, weapon or fists raised, weight shifting subtly side to side, small breathing bob. Feet stay planted; stance never relaxes."},
-	{"walk", "걷기", "기본 동작", "side-view walking cycle facing right", 6, 10, true, "Readable side-view walking cycle: alternating legs with clear contact and passing poses, opposite arm swing, slight body bob. Each frame shows a distinctly different leg position. STRICT full side profile: the whole body AND the face are turned to the RIGHT, walking toward the right in every frame. NEVER front-facing, never looking at the viewer, never a 3/4 or front view — a pure side silhouette like a side-scrolling platformer walk cycle."},
+	{"walk", "걷기", "기본 동작", "side-view walking cycle facing right", 6, 10, true, "Readable side-view walking cycle: alternating legs with clear contact and passing poses, opposite arm swing, slight body bob. Each frame shows a distinctly different leg position."},
 	{"run", "달리기", "기본 동작", "fast side-view running cycle facing right", 6, 12, true, "Fast side-view running cycle: strong forward lean, large leg extension with airborne moments, pumping arms, pronounced body bob. Each frame is a distinct stride phase."},
 	{"sprint", "전력 질주", "기본 동작", "all-out sprint, extreme lean and stride", 6, 14, true, "All-out sprint: extreme forward lean, maximal leg extension, both feet airborne at peak, arms pumping hard. Faster, larger strides than a normal run."},
 	{"jump", "점프", "기본 동작", "crouch, take off, airborne peak, land", 5, 10, false, "Jump sequence: crouching anticipation, take-off with body extended upward, airborne peak with legs tucked, landing recovery crouch. Vary the body's vertical position to show the arc."},
@@ -39,7 +39,7 @@ var Presets = []PresetInfo{
 	{"turn", "돌아서기", "기본 동작", "turn around to face the other way", 4, 10, false, "Turn-around: rotate the body from facing one way to the opposite, weight pivoting on the feet, head leading the turn. Show clear intermediate angles."},
 
 	// ── 전투 ──
-	{"attack", "공격", "전투", "melee attack with wind-up, strike, recovery", 4, 12, false, "Melee attack: wind-up with body coiled back, powerful strike at full extension, follow-through, recovery to ready stance. The strike frame is the most extreme pose. Keep ONE consistent fierce, determined battle expression in EVERY frame — furrowed brow, focused eyes, mouth set firm or open in a battle shout. Never smile, never look happy or cheerful during the attack. The sword stays clearly visible and firmly gripped in the hand in EVERY frame, including the final recovery — never hide, sheathe, drop, or omit the blade. In the recovery frame keep the SAME fierce face: no sighing, no tired, relaxed, breathing-out, or exhausted expression."},
+	{"attack", "공격", "전투", "melee attack with wind-up, strike, recovery", 4, 12, false, "Melee attack: wind-up with body coiled back, powerful strike at full extension, follow-through, recovery to ready stance. The strike frame is the most extreme pose."},
 	{"attack-heavy", "강공격", "전투", "slow heavy melee attack with big wind-up", 6, 10, false, "Heavy attack: long exaggerated wind-up loading weight back, a slow powerful swing, deep follow-through, slow recovery. Bigger and slower than a normal attack."},
 	{"combo", "연속 공격", "전투", "multi-hit melee combo", 6, 14, false, "Multi-hit combo: a fast sequence of distinct strikes from different angles (e.g. slash, backslash, thrust), each frame a separate hit, ending in a recovery pose."},
 	{"slash", "베기", "전투", "horizontal sword slash", 5, 14, false, "Sword slash: coil the blade back, sweep it across in a wide horizontal arc at full extension, follow through to the opposite side, recover. Most extreme pose mid-swing."},
@@ -167,6 +167,57 @@ func MotionHint(stateName string) string {
 		}
 	}
 	return ""
+}
+
+// doodleStateHint는 Fruit War doodle 스타일(cartoon 계열)에서만 추가로 주입하는
+// 상태별 모션 지시를 반환합니다 (해당 없으면 빈 문자열).
+//
+// 이 지시들은 doodle 과일 전사 특유의 요구사항(엄격한 측면 프로필, 전투 표정 일관,
+// 칼 상시 노출 등)이라 픽셀아트 경로에는 적용하지 않는다. 일반 모션 가이드는
+// MotionHint(정적 프리셋 Hint)가 양쪽 경로 모두에 제공한다.
+//
+// 방향 세트(예: "walk-south")도 베이스 키워드로 매칭되도록 접미사를 제거한다.
+func doodleStateHint(stateName string) string {
+	key := strings.ToLower(strings.TrimSpace(stateName))
+	if base := stripDirectionSuffix(key); base != key {
+		key = base
+	}
+	switch key {
+	case "attack":
+		return "Keep ONE consistent fierce, determined battle expression in EVERY frame — furrowed brow, " +
+			"focused eyes, mouth set firm or open in a battle shout. Never smile, never look happy or cheerful " +
+			"during the attack. The sword stays clearly visible and firmly gripped in the hand in EVERY frame, " +
+			"including the final recovery — never hide, sheathe, drop, or omit the blade. In the recovery frame " +
+			"keep the SAME fierce face: no sighing, no tired, relaxed, breathing-out, or exhausted expression."
+	default:
+		return ""
+	}
+}
+
+// doodleFacing은 cartoon(doodle) 상태별 카메라 방향 지시를 반환합니다.
+//
+// idle·victory 만 정면(빈 문자열 → base 의 정면 자세 유지)이고, 그 외 모든 상태
+// (walk·attack·hit·death 등)는 45도(3/4) 측면을 강제한다. 특히 시작/끝 프레임이
+// 정면으로 풀리는 경향이 있어 "첫·마지막 포함 모든 프레임"을 명시한다.
+//
+// 방향 세트("walk-south" 등)는 베이스 키워드로 매칭되도록 접미사를 제거한다.
+func doodleFacing(stateName string) string {
+	key := strings.ToLower(strings.TrimSpace(stateName))
+	if base := stripDirectionSuffix(key); base != key {
+		key = base
+	}
+	switch key {
+	case "idle", "idle-combat", "victory":
+		// base 가 3/4 측면이므로, 정면 상태는 명시적으로 정면을 강제해 viewer 를 향하게 한다.
+		return "front view facing the viewer: turn the character to face forward toward the camera, " +
+			"both eyes visible and the body squared to the front (not angled to the side). Keep this " +
+			"same front facing in every frame."
+	default:
+		return "3/4 side view at about 45 degrees, the same in every frame including the first and last " +
+			"pose: the body and face are angled forward-right (halfway between front and side), facing " +
+			"toward the right, one eye and a bit of the far cheek still visible. NOT a flat front view with " +
+			"eyes meeting the viewer, and NOT a flat pure-side profile."
+	}
 }
 
 // stripDirectionSuffix는 상태명 끝의 방향 키 접미사("-south" 등)를 제거합니다.

@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"perfectpixel/internal/gen"
@@ -72,7 +73,7 @@ func savePNG(path string, img image.Image) {
 
 // generateBase는 베이스 캐릭터를 생성하고 배경 제거 + 픽셀화한 정리본과 PNG 바이트를 반환합니다.
 func generateBase(ctx context.Context, p gen.Provider, desc, styleKey, style string) (*image.NRGBA, []byte, error) {
-	raw, err := p.GenerateImage(ctx, sprite.BuildCharacterPrompt(desc, style), nil, "1:1")
+	raw, err := p.GenerateImage(ctx, sprite.BuildCharacterPrompt(desc, styleKey, style), nil, "1:1")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -86,6 +87,80 @@ func generateBase(ctx context.Context, p gen.Provider, desc, styleKey, style str
 		sprite.PixelPostProcess(single, palette)
 		clean = single[0]
 	}
+	return clean, pngBytes(clean), nil
+}
+
+// runExtractOnly는 생성 없이 raw 스트립 PNG 를 그대로 분할/추출합니다.
+// GUI 의 rawStrip(추출 전, 배경 제거된 스트립)을 다시 추출해 분할 거동을 진단하거나,
+// 마음에 드는 raw 를 제대로 재추출하는 용도. -states 의 프레임 수로 분할한다.
+func runExtractOnly(opt options) error {
+	logf := func(format string, a ...any) {
+		if !opt.quiet && !opt.jsonOut {
+			fmt.Printf(format, a...)
+		}
+	}
+	presets, err := selectStates(opt)
+	if err != nil {
+		return err
+	}
+	presets, err = applyFrameCounts(presets, opt)
+	if err != nil {
+		return err
+	}
+	if len(presets) != 1 {
+		return fmt.Errorf("-extractfile 은 한 번에 한 상태만 지원합니다 (-states 에 1개 지정). 현재 %d개", len(presets))
+	}
+	raw, err := os.ReadFile(opt.extractfile)
+	if err != nil {
+		return fmt.Errorf("-extractfile 읽기 실패: %w", err)
+	}
+	img, err := decodeImg(raw)
+	if err != nil {
+		return err
+	}
+	// rawStrip(GUI 의 추출 전 스트립)은 이미 배경 제거(투명)된 상태다. GUI 파이프라인과
+	// 동일하게 RemoveBackground 를 추가로 적용하지 않고 그대로 추출한다 (이중 적용 시 투명
+	// 배경을 오인해 캐릭터가 지워짐).
+	clean := sprite.ToNRGBA(img)
+
+	if err := os.MkdirAll(opt.out, 0o755); err != nil {
+		return err
+	}
+	if opt.dumpraw {
+		rawDir := filepath.Join(opt.out, "raw")
+		_ = os.MkdirAll(rawDir, 0o755)
+		savePNG(filepath.Join(rawDir, presets[0].Name+".png"), clean)
+	}
+
+	kw := presets[0]
+	ext := sprite.ExtractFrames(clean, kw.Frames, 256, 256, 24)
+	dir := filepath.Join(opt.out, "frames", kw.Name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for i, f := range ext.Frames {
+		savePNG(filepath.Join(dir, fmt.Sprintf("frame-%02d.png", i)), f)
+	}
+	logf("[extractonly] %s: %d/%d 프레임 추출 → %s\n", kw.Name, ext.Found, kw.Frames, dir)
+	for _, w := range ext.Warnings {
+		logf("  경고: %s\n", w)
+	}
+	return nil
+}
+
+// loadBaseImage는 파일에서 베이스 이미지를 읽어 (정체성용 clean, ref용 png bytes)를 반환합니다.
+// GUI 의 "이미지 업로드" 경로를 헤드리스에서 재현하기 위한 것(생성 대신 로드).
+// 이미 투명 배경이면 RemoveBackground 는 무해하고, 배경이 있으면 키잉으로 제거한다.
+func loadBaseImage(path string) (*image.NRGBA, []byte, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	img, err := decodeImg(raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	clean := sprite.RemoveBackground(img)
 	return clean, pngBytes(clean), nil
 }
 
@@ -108,7 +183,7 @@ func genState(ctx context.Context, p gen.Provider, opt options, style string,
 	best.Name, best.Expected = spec.Name, expected
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		prompt := sprite.BuildStripPrompt(opt.desc, style, spec, feedback)
+		prompt := sprite.BuildStripPrompt(opt.desc, opt.style, style, spec, feedback)
 		if len(refs) > 1 {
 			prompt += "\nMotion reference: the second attached image is the FRONT-view animation strip of this same character performing this exact action. Reproduce the same motion timing and pose phases frame by frame, but viewed from the required facing direction above.\n"
 		}
