@@ -3,6 +3,7 @@ package sprite
 import (
 	"fmt"
 	"image"
+	"math"
 
 	xdraw "golang.org/x/image/draw"
 )
@@ -17,18 +18,203 @@ type frameContent struct {
 	bottom int     // 베이스라인(콘텐츠 최하단 행, 스트립 좌표)
 }
 
-// extractContent는 컬럼 구간 span 안의 불투명 픽셀을 bbox로 잘라냅니다.
-// 소유권 추적(연결요소) 없이 구간 내 모든 콘텐츠를 모으므로, 팔다리가 분리되어도
-// 한 포즈로 안전하게 합쳐집니다.
-func extractContent(strip *image.NRGBA, span colSpan, h int) frameContent {
-	minX, minY, maxX, maxY := span.end, h, span.start-1, -1
-	var sumWX, sumW float64
-	for x := span.start; x < span.end; x++ {
-		for y := 0; y < h; y++ {
-			a := strip.Pix[strip.PixOffset(x, y)+3]
-			if a <= alphaThreshold {
+// component는 한 연결요소의 질량·경계상자·무게중심 x 입니다.
+type component struct {
+	mass                   float64
+	minX, minY, maxX, maxY int
+	cx                     float64 // 알파 가중 무게중심 x (스트립 좌표)
+}
+
+// labelStripComponents는 전체 스트립을 8-연결 연결요소로 라벨링해, label 배열
+// (w*h, 0=빈, >0=컴포넌트 번호) 과 컴포넌트 목록을 반환합니다.
+//
+// 포즈 분할(컬럼 단위)과 달리, 칼처럼 옆으로 길게 뻗어 인접 포즈 컬럼을 침범하는
+// 장비를 하나의 컴포넌트로 온전히 잡아내, 무게중심 기준으로 올바른 포즈에 귀속할 수
+// 있게 한다.
+func labelStripComponents(strip *image.NRGBA) ([]int, []component) {
+	w, h := strip.Rect.Dx(), strip.Rect.Dy()
+	label := make([]int, w*h)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if strip.Pix[strip.PixOffset(x, y)+3] > alphaThreshold {
+				label[y*w+x] = -1
+			}
+		}
+	}
+	var comps []component
+	stackX := make([]int, 0, 256)
+	stackY := make([]int, 0, 256)
+	for y0 := 0; y0 < h; y0++ {
+		for x0 := 0; x0 < w; x0++ {
+			if label[y0*w+x0] != -1 {
 				continue
 			}
+			id := len(comps) + 1
+			c := component{minX: w, minY: h, maxX: -1, maxY: -1}
+			var sumWX, sumW float64
+			stackX = stackX[:0]
+			stackY = stackY[:0]
+			label[y0*w+x0] = id
+			stackX = append(stackX, x0)
+			stackY = append(stackY, y0)
+			for len(stackX) > 0 {
+				cx := stackX[len(stackX)-1]
+				cy := stackY[len(stackY)-1]
+				stackX = stackX[:len(stackX)-1]
+				stackY = stackY[:len(stackY)-1]
+				a := float64(strip.Pix[strip.PixOffset(cx, cy)+3])
+				c.mass += a
+				sumWX += float64(cx) * a
+				sumW += a
+				if cx < c.minX {
+					c.minX = cx
+				}
+				if cx > c.maxX {
+					c.maxX = cx
+				}
+				if cy < c.minY {
+					c.minY = cy
+				}
+				if cy > c.maxY {
+					c.maxY = cy
+				}
+				for dy := -1; dy <= 1; dy++ {
+					for dx := -1; dx <= 1; dx++ {
+						if dx == 0 && dy == 0 {
+							continue
+						}
+						nx, ny := cx+dx, cy+dy
+						if nx < 0 || nx >= w || ny < 0 || ny >= h {
+							continue
+						}
+						if label[ny*w+nx] == -1 {
+							label[ny*w+nx] = id
+							stackX = append(stackX, nx)
+							stackY = append(stackY, ny)
+						}
+					}
+				}
+			}
+			if sumW > 0 {
+				c.cx = sumWX / sumW
+			} else {
+				c.cx = float64(c.minX+c.maxX) / 2
+			}
+			comps = append(comps, c)
+		}
+	}
+	return label, comps
+}
+
+// compModes는 각 컴포넌트를 두 모드로 분류합니다:
+//   - colMode=true  : bbox가 2개 이상의 포즈 중심을 가로로 포함 → "닿아 한 덩어리가 된
+//     본체"로 보고, 프레임 추출 시 컬럼 경계로 나눈다(닿은 포즈 분리).
+//   - colMode=false : 그 외(칼·방패 등 단일 포즈 장비) → 무게중심이 가장 가까운 세그에
+//     통째로 귀속한다(옆으로 뻗어 인접 컬럼을 침범해도 자기 포즈로).
+//
+// segOf 는 colMode=false 컴포넌트의 귀속 세그 인덱스입니다.
+func compModes(comps []component, centers []float64) (colMode []bool, segOf []int) {
+	colMode = make([]bool, len(comps))
+	segOf = make([]int, len(comps))
+	for ci := range comps {
+		c := comps[ci]
+		cnt := 0
+		for _, ctr := range centers {
+			if float64(c.minX) <= ctr && ctr <= float64(c.maxX) {
+				cnt++
+			}
+		}
+		if cnt >= 2 {
+			colMode[ci] = true
+			continue
+		}
+		best, bd := 0, math.Inf(1)
+		for si, ctr := range centers {
+			if d := math.Abs(c.cx - ctr); d < bd {
+				bd, best = d, si
+			}
+		}
+		segOf[ci] = best
+	}
+	return colMode, segOf
+}
+
+// buildFrameForSeg는 세그 si 의 frameContent 를 만듭니다.
+//
+//   - colMode 컴포넌트(닿은 본체): 이 세그의 컬럼 범위 [seg.start,seg.end) 픽셀만 포함.
+//   - 무게중심이 이 세그에 귀속된 컴포넌트: 본체(최대 질량) + 질량 keepFrac 이상 또는
+//     본체에 인접한 것만 보존(작은 외래 조각 배제). 다른 세그 귀속 칼은 자동 제외.
+func buildFrameForSeg(strip *image.NRGBA, label []int, comps []component, colMode []bool, segOf []int, seg colSpan, si, w, h int) frameContent {
+	// 이 세그에 무게중심 귀속된 컴포넌트들
+	var segComps []int
+	for ci := range comps {
+		if !colMode[ci] && segOf[ci] == si {
+			segComps = append(segComps, ci)
+		}
+	}
+	// 본체 질량 후보: 귀속 컴포넌트 + 이 세그에 걸친 colMode 컴포넌트
+	domMass := 0.0
+	for _, ci := range segComps {
+		if comps[ci].mass > domMass {
+			domMass = comps[ci].mass
+		}
+	}
+	for ci := range comps {
+		if colMode[ci] && comps[ci].minX < seg.end && comps[ci].maxX >= seg.start {
+			if comps[ci].mass > domMass {
+				domMass = comps[ci].mass
+			}
+		}
+	}
+	// 귀속 컴포넌트 보존 규칙(keepFrac/인접)으로 작은 외래 조각 배제
+	const keepFrac = 0.15
+	gapTol := h / 60
+	if gapTol < 3 {
+		gapTol = 3
+	}
+	keepC := make(map[int]bool, len(segComps))
+	for _, ci := range segComps {
+		if comps[ci].mass >= keepFrac*domMass {
+			keepC[ci] = true
+		}
+	}
+	for changed := true; changed; {
+		changed = false
+		for _, ci := range segComps {
+			if keepC[ci] {
+				continue
+			}
+			for kj := range keepC {
+				if compGap(comps[ci], comps[kj]) <= gapTol {
+					keepC[ci] = true
+					changed = true
+					break
+				}
+			}
+		}
+	}
+
+	// 이 세그에 포함될 픽셀 판정
+	include := func(x, y int) bool {
+		l := label[y*w+x]
+		if l <= 0 {
+			return false
+		}
+		ci := l - 1
+		if colMode[ci] {
+			return x >= seg.start && x < seg.end
+		}
+		return segOf[ci] == si && keepC[ci]
+	}
+
+	minX, minY, maxX, maxY := w, h, -1, -1
+	var sumWX, sumW float64
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if !include(x, y) {
+				continue
+			}
+			a := strip.Pix[strip.PixOffset(x, y)+3]
 			if x < minX {
 				minX = x
 			}
@@ -52,10 +238,10 @@ func extractContent(strip *image.NRGBA, span colSpan, h int) frameContent {
 	dst := image.NewNRGBA(image.Rect(0, 0, gw, gh))
 	for y := minY; y <= maxY; y++ {
 		for x := minX; x <= maxX; x++ {
-			si := strip.PixOffset(x, y)
-			if strip.Pix[si+3] <= alphaThreshold {
+			if !include(x, y) {
 				continue
 			}
+			si := strip.PixOffset(x, y)
 			di := dst.PixOffset(x-minX, y-minY)
 			copy(dst.Pix[di:di+4], strip.Pix[si:si+4])
 		}
@@ -65,6 +251,26 @@ func extractContent(strip *image.NRGBA, span colSpan, h int) frameContent {
 		cx = sumWX / sumW
 	}
 	return frameContent{img: dst, minX: minX, cx: cx, bottom: maxY}
+}
+
+// compGap은 두 컴포넌트 경계상자 사이의 체비셰프 간극(겹치면 0)을 반환합니다.
+func compGap(a, b component) int {
+	dx := 0
+	if a.minX > b.maxX {
+		dx = a.minX - b.maxX
+	} else if b.minX > a.maxX {
+		dx = b.minX - a.maxX
+	}
+	dy := 0
+	if a.minY > b.maxY {
+		dy = a.minY - b.maxY
+	} else if b.minY > a.maxY {
+		dy = b.minY - a.maxY
+	}
+	if dx > dy {
+		return dx
+	}
+	return dy
 }
 
 // ExtractFrames는 투명 배경 스트립에서 포즈를 투영 분할로 검출해 셀 크기 프레임으로
@@ -77,11 +283,21 @@ func ExtractFrames(strip *image.NRGBA, expected, cellW, cellH, margin int) Extra
 		res.Warnings = append(res.Warnings, "이미지에서 캐릭터를 찾지 못했습니다. 다시 생성해 주세요.")
 		return res
 	}
-	h := strip.Rect.Dy()
+	w, h := strip.Rect.Dx(), strip.Rect.Dy()
+
+	// 전체 스트립을 1회 연결요소 라벨링하고, 각 컴포넌트를 모드로 분류한다(닿은 본체는
+	// 컬럼 분할, 칼·장비는 무게중심 세그 귀속). 칼이 옆으로 뻗어 인접 컬럼을 침범해도
+	// 무게중심이 자기 포즈 쪽이면 올바른 프레임으로 들어간다.
+	label, comps := labelStripComponents(strip)
+	centers := make([]float64, len(segs))
+	for i, s := range segs {
+		centers[i] = float64(s.start+s.end) / 2
+	}
+	colMode, segOf := compModes(comps, centers)
 
 	var fcs []frameContent
-	for _, s := range segs {
-		fc := extractContent(strip, s, h)
+	for si := range segs {
+		fc := buildFrameForSeg(strip, label, comps, colMode, segOf, segs[si], si, w, h)
 		if fc.img != nil {
 			fcs = append(fcs, fc)
 		}
