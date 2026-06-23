@@ -174,10 +174,11 @@ func TestBuildStripPrompt(t *testing.T) {
 }
 
 // TestDoodleFacingByState는 base 캐릭터를 측면으로 전환한 정책을 검증합니다:
-// idle·victory 는 정면(front)을 명시적으로 강제하고(측면 base 를 정면으로 회전),
-// 그 외 상태(walk·attack·hit·death)는 45도 측면을 받는다.
+// idle·victory 만 정면(front)을 명시적으로 강제하고(측면 base 를 정면으로 회전),
+// 그 외 상태(walk·attack·hit·death·idle-combat)는 45도 측면을 받는다.
+// idle-combat(전투 대기)은 무기를 든 전투 자세라 3/4 우측면(SE)이 기본이다.
 func TestDoodleFacingByState(t *testing.T) {
-	for _, st := range []string{"walk", "attack", "hit", "death", "run"} {
+	for _, st := range []string{"walk", "attack", "hit", "death", "run", "idle-combat"} {
 		f := doodleFacing(st)
 		if !containsFold(f, "45 degrees") {
 			t.Errorf("doodleFacing(%q)에 45도 측면 지시가 있어야 함", st)

@@ -197,8 +197,9 @@ func doodleStateHint(stateName string) string {
 // doodleFacing은 cartoon(doodle) 상태별 카메라 방향 지시를 반환합니다.
 //
 // idle·victory 만 정면(빈 문자열 → base 의 정면 자세 유지)이고, 그 외 모든 상태
-// (walk·attack·hit·death 등)는 45도(3/4) 측면을 강제한다. 특히 시작/끝 프레임이
-// 정면으로 풀리는 경향이 있어 "첫·마지막 포함 모든 프레임"을 명시한다.
+// (walk·attack·hit·death·idle-combat 등)는 45도(3/4) 우측면을 강제한다. idle-combat
+// (전투 대기)은 무기를 든 전투 자세라 정면이 아니라 측면(SE)을 기본으로 둔다. 특히
+// 시작/끝 프레임이 정면으로 풀리는 경향이 있어 "첫·마지막 포함 모든 프레임"을 명시한다.
 //
 // 방향 세트("walk-south" 등)는 베이스 키워드로 매칭되도록 접미사를 제거한다.
 func doodleFacing(stateName string) string {
@@ -207,7 +208,7 @@ func doodleFacing(stateName string) string {
 		key = base
 	}
 	switch key {
-	case "idle", "idle-combat", "victory":
+	case "idle", "victory":
 		// base 가 3/4 측면이므로, 정면 상태는 명시적으로 정면을 강제해 viewer 를 향하게 한다.
 		return "front view facing the viewer: turn the character to face forward toward the camera, " +
 			"both eyes visible and the body squared to the front (not angled to the side). Keep this " +
