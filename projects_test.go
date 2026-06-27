@@ -53,6 +53,14 @@ func TestProjectCRUD(t *testing.T) {
 		t.Fatalf("목록 2개 아님")
 	}
 
+	// ListProjects는 updatedAt 내림차순이어야 함 (동률 허용)
+	ordered := a.ListProjects()
+	for i := 1; i < len(ordered); i++ {
+		if ordered[i-1].UpdatedAt < ordered[i].UpdatedAt {
+			t.Fatalf("ListProjects가 updatedAt 내림차순이 아님: %+v", ordered)
+		}
+	}
+
 	// SetActiveProject
 	if err := a.SetActiveProject(meta.ID); err != nil {
 		t.Fatalf("SetActive 실패: %v", err)
