@@ -560,7 +560,7 @@ export default function App() {
     await flushSaveCurrent();
     try {
       const meta: any = await CreateProject(name.trim() || t("default_project_name"));
-      setProjects(await ListProjects());
+      setProjects((await ListProjects()) as any);
       setActiveId(meta.id);
       applySession("");
       await SetActiveProject(meta.id);
@@ -575,33 +575,42 @@ export default function App() {
   const renameProjectFlow = async (id: string, name: string) => {
     const nm = name.trim();
     if (!nm) return;
-    await RenameProject(id, nm);
-    setProjects(await ListProjects());
-    toast("success", t("toast_project_renamed"));
+    try {
+      await RenameProject(id, nm);
+      setProjects((await ListProjects()) as any);
+      toast("success", t("toast_project_renamed"));
+    } catch (e) {
+      toast("error", String(e));
+    }
   };
 
   const deleteProjectFlow = async (id: string) => {
-    await DeleteProject(id);
-    const list: any = await ListProjects();
-    if (!Array.isArray(list) || list.length === 0) {
-      const meta: any = await CreateProject(t("default_project_name"));
-      setProjects(await ListProjects());
-      setActiveId(meta.id);
-      applySession("");
-      await SetActiveProject(meta.id);
-    } else {
-      setProjects(list);
-      const active: string = await GetActiveProject();
-      if (active !== activeIdRef.current) {
-        restoredRef.current = false;
-        setActiveId(active);
-        applySession(await LoadProject(active));
-        setTimeout(() => {
-          restoredRef.current = true;
-        }, 0);
+    restoredRef.current = false; // 삭제 후 전환/재생성 중 자동저장 잠금 (모든 분기 커버)
+    try {
+      await DeleteProject(id);
+      const list: any = await ListProjects();
+      if (!Array.isArray(list) || list.length === 0) {
+        const meta: any = await CreateProject(t("default_project_name"));
+        setProjects((await ListProjects()) as any);
+        setActiveId(meta.id);
+        applySession("");
+        await SetActiveProject(meta.id);
+      } else {
+        setProjects(list);
+        const active: string = await GetActiveProject();
+        if (active !== activeIdRef.current) {
+          setActiveId(active);
+          applySession(await LoadProject(active));
+        }
       }
+      toast("success", t("toast_project_deleted"));
+    } catch (e) {
+      toast("error", String(e));
+    } finally {
+      setTimeout(() => {
+        restoredRef.current = true;
+      }, 0);
     }
-    toast("success", t("toast_project_deleted"));
   };
 
   // 다이얼로그 오픈 헬퍼
