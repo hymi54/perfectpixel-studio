@@ -27,7 +27,6 @@ const ko: Record<string, string> = {
   toast_gen_canceled: "생성이 취소되었습니다.",
   toast_no_export: "내보낼 완성된 애니메이션이 없습니다.",
   toast_export_done: "내보내기 완료: {dir}",
-  toast_new_project: "새 프로젝트를 시작합니다.",
   toast_dirset: "8방향 세트: {ok}/8 방향 완성",
   toast_dirset_failed: "8방향 세트: {ok}/8 방향 완성 ({failed}개 실패)",
   toast_genall: "{total}개 중 {ok}개 애니메이션 생성 완료",
@@ -37,10 +36,7 @@ const ko: Record<string, string> = {
   err_mirror_fail: "미러링에 실패했습니다.",
   err_no_frames: "프레임을 추출하지 못했습니다. 다시 생성해 주세요.",
 
-  confirm_new_title: "새 프로젝트를 시작할까요?",
-  confirm_new_desc: "현재 캐릭터와 추가한 애니메이션이 모두 지워집니다. 이 작업은 되돌릴 수 없습니다.",
   cancel: "취소",
-  confirm_new_ok: "지우고 시작",
 
   api_key: "{provider} API 키",
   in_use: "· 사용 중",

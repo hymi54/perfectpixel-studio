@@ -27,7 +27,6 @@ const es: Record<string, string> = {
   toast_gen_canceled: "Generación cancelada.",
   toast_no_export: "No hay animaciones terminadas para exportar.",
   toast_export_done: "Exportación completa: {dir}",
-  toast_new_project: "Iniciando un nuevo proyecto.",
   toast_dirset: "Set de 8 direcciones: {ok}/8 direcciones listas",
   toast_dirset_failed: "Set de 8 direcciones: {ok}/8 direcciones listas ({failed} fallidas)",
   toast_genall: "{ok} de {total} animaciones generadas",
@@ -37,10 +36,7 @@ const es: Record<string, string> = {
   err_mirror_fail: "Falló el reflejo.",
   err_no_frames: "No se pudieron extraer los fotogramas. Inténtalo de nuevo.",
 
-  confirm_new_title: "¿Iniciar un nuevo proyecto?",
-  confirm_new_desc: "Tu personaje actual y todas las animaciones añadidas se borrarán. Esto no se puede deshacer.",
   cancel: "Cancelar",
-  confirm_new_ok: "Borrar y empezar",
 
   api_key: "Clave API de {provider}",
   in_use: "· en uso",

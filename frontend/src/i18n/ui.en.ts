@@ -27,7 +27,6 @@ const en: Record<string, string> = {
   toast_gen_canceled: "Generation canceled.",
   toast_no_export: "No finished animations to export.",
   toast_export_done: "Export complete: {dir}",
-  toast_new_project: "Starting a new project.",
   toast_dirset: "8-direction set: {ok}/8 directions done",
   toast_dirset_failed: "8-direction set: {ok}/8 directions done ({failed} failed)",
   toast_genall: "{ok} of {total} animations generated",
@@ -37,10 +36,7 @@ const en: Record<string, string> = {
   err_mirror_fail: "Mirroring failed.",
   err_no_frames: "Could not extract frames. Please generate again.",
 
-  confirm_new_title: "Start a new project?",
-  confirm_new_desc: "Your current character and all added animations will be cleared. This cannot be undone.",
   cancel: "Cancel",
-  confirm_new_ok: "Clear and start",
 
   api_key: "{provider} API key",
   in_use: "· in use",

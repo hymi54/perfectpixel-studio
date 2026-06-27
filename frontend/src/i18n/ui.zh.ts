@@ -27,7 +27,6 @@ const zh: Record<string, string> = {
   toast_gen_canceled: "已取消生成。",
   toast_no_export: "没有可导出的已完成动画。",
   toast_export_done: "导出完成: {dir}",
-  toast_new_project: "正在开始新项目。",
   toast_dirset: "8方向组: {ok}/8 个方向完成",
   toast_dirset_failed: "8方向组: {ok}/8 个方向完成 ({failed} 个失败)",
   toast_genall: "{total} 个动画中已生成 {ok} 个",
@@ -37,10 +36,7 @@ const zh: Record<string, string> = {
   err_mirror_fail: "镜像失败。",
   err_no_frames: "无法提取帧，请重新生成。",
 
-  confirm_new_title: "开始新项目？",
-  confirm_new_desc: "当前角色和已添加的所有动画都会被清空。此操作无法撤销。",
   cancel: "取消",
-  confirm_new_ok: "清空并开始",
 
   api_key: "{provider} API 密钥",
   in_use: "· 使用中",

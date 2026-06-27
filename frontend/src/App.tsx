@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Images, Package, Plus, Settings, X } from "lucide-react";
-import { CancelGeneration, ClearSession, ExportProject, GenerateState, GetSettings, ListDirections, ListPresets, LoadSession, MirrorFrames, ReExtractState, RevealInFinder, SaveSession } from "../wailsjs/go/main/App";
+import { CancelGeneration, CreateProject, DeleteProject, ExportProject, GenerateState, GetActiveProject, GetSettings, ListDirections, ListPresets, ListProjects, LoadProject, MirrorFrames, ReExtractState, RenameProject, RevealInFinder, SaveProject, SetActiveProject } from "../wailsjs/go/main/App";
 import { EventsOn } from "../wailsjs/runtime/runtime";
 import CharacterPanel from "./components/CharacterPanel";
 import GalleryModal from "./components/GalleryModal";
@@ -9,7 +9,9 @@ import SettingsModal, { ISettings } from "./components/SettingsModal";
 import StatesPanel from "./components/StatesPanel";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./components/ui/dialog";
-import { CharacterDef, DirectionInfo, FALLBACK_PRESETS, FrameItem, PresetInfo, StateDef, selectedFrames, uid } from "./types";
+import { Input } from "./components/ui/input";
+import ProjectMenu from "./components/ProjectMenu";
+import { CharacterDef, DirectionInfo, FALLBACK_PRESETS, FrameItem, PresetInfo, ProjectMeta, StateDef, selectedFrames, uid } from "./types";
 import { useI18n } from "./i18n";
 import { directionName } from "./i18n/catalog";
 import logoUrl from "./assets/logo.svg";
@@ -35,7 +37,10 @@ export default function App() {
   const [settings, setSettings] = useState<ISettings | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
-  const [confirmNew, setConfirmNew] = useState(false);
+  const [projects, setProjects] = useState<ProjectMeta[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
+  const [nameDialog, setNameDialog] = useState<{ open: boolean; mode: "new" | "rename"; value: string; targetId: string }>({ open: false, mode: "new", value: "", targetId: "" });
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: string }>({ open: false, id: "" });
   const [character, setCharacter] = useState<CharacterDef>({
     image: null,
     name: "",
@@ -63,6 +68,11 @@ export default function App() {
   const busyRef = useRef(busy);
   busyRef.current = busy;
 
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+
   const restoredRef = useRef(false); // 세션 복원 완료 전 자동 저장 방지
 
   useEffect(() => {
@@ -80,36 +90,25 @@ export default function App() {
       setProgress(`${st}${data?.message ?? ""}`);
     });
 
-    // 이전 작업 세션 복원
+    // 프로젝트 목록 로드 + 활성 프로젝트 복원
     (async () => {
       try {
-        const raw = await LoadSession();
-        if (raw) {
-          const s = JSON.parse(raw);
-          if (s?.character) {
-            setCharacter({
-              image: s.character.image ?? null,
-              name: s.character.name ?? "",
-              description: s.character.description ?? "",
-              styleKey: s.character.styleKey ?? "cartoon",
-              styleCustom: s.character.styleCustom ?? "",
-            });
-          }
-          if (typeof s?.cellSize === "number") setCellSize(s.cellSize);
-          if (Array.isArray(s?.states)) {
-            // 생성 도중 종료된 상태는 안전하게 정리, 구버전 절차 애니메이션 상태는 제외
-            const states: StateDef[] = s.states
-              .filter((st: any) => st?.mode !== "procedural")
-              .map((st: StateDef) => ({
-                ...st,
-                status: st.status === "generating" ? (st.items?.length > 0 ? "done" : "idle") : st.status,
-              }));
-            setStates(states);
-            if (s.selectedId && states.some((x) => x.id === s.selectedId)) setSelectedId(s.selectedId);
-          }
+        const list: any = await ListProjects();
+        let active: string = await GetActiveProject();
+        if (!Array.isArray(list) || list.length === 0) {
+          const meta: any = await CreateProject(t("default_project_name"));
+          setProjects([meta]);
+          setActiveId(meta.id);
+          applySession("");
+        } else {
+          if (!active || !list.some((p: ProjectMeta) => p.id === active)) active = list[0].id;
+          setProjects(list);
+          setActiveId(active);
+          applySession(await LoadProject(active));
+          await SetActiveProject(active);
         }
       } catch {
-        // 손상된 세션은 무시
+        // 무시 (다음 편집의 자동저장이 복구)
       } finally {
         restoredRef.current = true;
       }
@@ -118,13 +117,15 @@ export default function App() {
     return off;
   }, []);
 
-  // 작업 세션 자동 저장 (디바운스)
+  // 활성 프로젝트 자동 저장 (디바운스)
   useEffect(() => {
     if (!restoredRef.current) return;
-    const t = setTimeout(() => {
-      SaveSession(JSON.stringify({ v: 1, character, cellSize, states, selectedId })).catch(() => {});
+    const id = activeIdRef.current;
+    if (!id) return;
+    const tm = setTimeout(() => {
+      SaveProject(id, JSON.stringify({ v: 1, character, cellSize, states, selectedId })).catch(() => {});
     }, 1200);
-    return () => clearTimeout(t);
+    return () => clearTimeout(tm);
   }, [character, cellSize, states, selectedId]);
 
   // 전역 단축키: ⌘, 설정 / ⌘E 내보내기 / ⌘G 갤러리
@@ -487,30 +488,136 @@ export default function App() {
     CancelGeneration();
   };
 
-  // 새 프로젝트: 작업 내용이 있으면 인앱 확인 모달을 띄우고, 없으면 바로 초기화.
-  // (window.confirm은 Wails WKWebView에서 동작하지 않으므로 사용하지 않음)
-  const handleNewProject = () => {
-    if (busy) return;
-    const hasWork = !!charRef.current.image || statesRef.current.length > 0;
-    if (hasWork) {
-      setConfirmNew(true);
-      return;
-    }
-    resetProject();
-  };
-
-  const resetProject = async () => {
-    setConfirmNew(false);
+  // 세션 JSON을 화면 상태로 적용(빈 문자열이면 기본값으로 리셋).
+  const applySession = (raw: string) => {
     setCharacter({ image: null, name: "", description: "", styleKey: "cartoon", styleCustom: "" });
+    setCellSize(256);
     setStates([]);
     setSelectedId(null);
-    setCellSize(256);
+    if (!raw) return;
     try {
-      await ClearSession();
+      const s = JSON.parse(raw);
+      if (s?.character) {
+        setCharacter({
+          image: s.character.image ?? null,
+          name: s.character.name ?? "",
+          description: s.character.description ?? "",
+          styleKey: s.character.styleKey ?? "cartoon",
+          styleCustom: s.character.styleCustom ?? "",
+        });
+      }
+      if (typeof s?.cellSize === "number") setCellSize(s.cellSize);
+      if (Array.isArray(s?.states)) {
+        const next: StateDef[] = s.states
+          .filter((st: any) => st?.mode !== "procedural")
+          .map((st: StateDef) => ({
+            ...st,
+            status: st.status === "generating" ? (st.items?.length > 0 ? "done" : "idle") : st.status,
+          }));
+        setStates(next);
+        if (s.selectedId && next.some((x) => x.id === s.selectedId)) setSelectedId(s.selectedId);
+      }
     } catch {
-      // 세션 파일 삭제 실패는 무시 (다음 자동 저장이 덮어씀)
+      // 손상된 세션 무시
     }
-    toast("info", t("toast_new_project"));
+  };
+
+  // 현재 프로젝트를 즉시(디바운스 없이) 저장
+  const flushSaveCurrent = async () => {
+    const id = activeIdRef.current;
+    if (!id) return;
+    try {
+      await SaveProject(id, JSON.stringify({
+        v: 1,
+        character: charRef.current,
+        cellSize: cellRef.current,
+        states: statesRef.current,
+        selectedId: selectedIdRef.current,
+      }));
+    } catch {
+      // 저장 실패는 무시
+    }
+  };
+
+  const switchProject = async (id: string) => {
+    if (busyRef.current || id === activeIdRef.current) return;
+    restoredRef.current = false; // 전환 중 자동저장 잠금
+    await flushSaveCurrent();
+    try {
+      await SetActiveProject(id);
+      const raw = await LoadProject(id);
+      setActiveId(id);
+      applySession(raw);
+    } finally {
+      setTimeout(() => {
+        restoredRef.current = true;
+      }, 0);
+    }
+  };
+
+  const createProjectFlow = async (name: string) => {
+    restoredRef.current = false;
+    await flushSaveCurrent();
+    try {
+      const meta: any = await CreateProject(name.trim() || t("default_project_name"));
+      setProjects(await ListProjects());
+      setActiveId(meta.id);
+      applySession("");
+      await SetActiveProject(meta.id);
+      toast("success", t("toast_project_created", { name: meta.name }));
+    } finally {
+      setTimeout(() => {
+        restoredRef.current = true;
+      }, 0);
+    }
+  };
+
+  const renameProjectFlow = async (id: string, name: string) => {
+    const nm = name.trim();
+    if (!nm) return;
+    await RenameProject(id, nm);
+    setProjects(await ListProjects());
+    toast("success", t("toast_project_renamed"));
+  };
+
+  const deleteProjectFlow = async (id: string) => {
+    await DeleteProject(id);
+    const list: any = await ListProjects();
+    if (!Array.isArray(list) || list.length === 0) {
+      const meta: any = await CreateProject(t("default_project_name"));
+      setProjects(await ListProjects());
+      setActiveId(meta.id);
+      applySession("");
+      await SetActiveProject(meta.id);
+    } else {
+      setProjects(list);
+      const active: string = await GetActiveProject();
+      if (active !== activeIdRef.current) {
+        restoredRef.current = false;
+        setActiveId(active);
+        applySession(await LoadProject(active));
+        setTimeout(() => {
+          restoredRef.current = true;
+        }, 0);
+      }
+    }
+    toast("success", t("toast_project_deleted"));
+  };
+
+  // 다이얼로그 오픈 헬퍼
+  const openNewProject = () => {
+    if (busy) return;
+    setNameDialog({ open: true, mode: "new", value: "", targetId: "" });
+  };
+  const openRenameProject = (id: string) => {
+    const p = projects.find((x) => x.id === id);
+    setNameDialog({ open: true, mode: "rename", value: p?.name ?? "", targetId: id });
+  };
+  const submitNameDialog = async () => {
+    const { mode, value, targetId } = nameDialog;
+    setNameDialog((d) => ({ ...d, open: false }));
+    if (mode === "new") await createProjectFlow(value);
+    else await renameProjectFlow(targetId, value);
   };
 
   const handleExport = async () => {
@@ -560,7 +667,15 @@ export default function App() {
           )}
         </div>
         <div className="topbar-actions">
-          <Button variant="ghost" size="sm" disabled={busy} onClick={handleNewProject} title={t("new_project_tip")}>
+          <ProjectMenu
+            projects={projects}
+            activeId={activeId}
+            busy={busy}
+            onSwitch={switchProject}
+            onRename={openRenameProject}
+            onDelete={(id) => setConfirmDelete({ open: true, id })}
+          />
+          <Button variant="ghost" size="sm" disabled={busy} onClick={openNewProject} title={t("new_project_tip")}>
             <Plus size={13} /> {t("new_project")}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setShowGallery(true)} title={t("gallery_tip")}>
@@ -644,18 +759,49 @@ export default function App() {
         <GalleryModal onClose={() => setShowGallery(false)} onError={(m) => toast("error", m)} />
       )}
 
-      <Dialog open={confirmNew} onOpenChange={(o) => !o && setConfirmNew(false)}>
+      <Dialog open={nameDialog.open} onOpenChange={(o) => !o && setNameDialog((d) => ({ ...d, open: false }))}>
         <DialogContent className="w-[380px]">
-          <DialogTitle>{t("confirm_new_title")}</DialogTitle>
-          <DialogDescription>
-            {t("confirm_new_desc")}
-          </DialogDescription>
+          <DialogTitle>{nameDialog.mode === "new" ? t("name_prompt_title_new") : t("name_prompt_title_rename")}</DialogTitle>
+          <Input
+            autoFocus
+            value={nameDialog.value}
+            placeholder={t("name_prompt_placeholder")}
+            onChange={(e) => setNameDialog((d) => ({ ...d, value: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitNameDialog();
+            }}
+          />
           <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
-            <Button variant="ghost" size="sm" onClick={() => setConfirmNew(false)}>
+            <Button variant="ghost" size="sm" onClick={() => setNameDialog((d) => ({ ...d, open: false }))}>
               {t("cancel")}
             </Button>
-            <Button variant="destructive" size="sm" onClick={resetProject}>
-              {t("confirm_new_ok")}
+            <Button size="sm" onClick={submitNameDialog}>
+              {t("name_prompt_ok")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={confirmDelete.open} onOpenChange={(o) => !o && setConfirmDelete({ open: false, id: "" })}>
+        <DialogContent className="w-[380px]">
+          <DialogTitle>{t("confirm_delete_title")}</DialogTitle>
+          <DialogDescription>
+            {t("confirm_delete_desc", { name: projects.find((p) => p.id === confirmDelete.id)?.name ?? "" })}
+          </DialogDescription>
+          <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete({ open: false, id: "" })}>
+              {t("cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={async () => {
+                const id = confirmDelete.id;
+                setConfirmDelete({ open: false, id: "" });
+                await deleteProjectFlow(id);
+              }}
+            >
+              {t("confirm_delete_ok")}
             </Button>
           </div>
         </DialogContent>
