@@ -173,3 +173,69 @@ func (a *App) CreateProject(name string) (ProjectMeta, error) {
 	}
 	return meta, nil
 }
+
+// RenameProject는 프로젝트 표시 이름을 변경합니다(페이로드 불변).
+func (a *App) RenameProject(id, name string) error {
+	idx, err := readIndex()
+	if err != nil {
+		return err
+	}
+	for i := range idx.Projects {
+		if idx.Projects[i].ID == id {
+			idx.Projects[i].Name = name
+			idx.Projects[i].UpdatedAt = nowStamp()
+			return writeIndex(idx)
+		}
+	}
+	return fmt.Errorf("프로젝트를 찾을 수 없습니다: %s", id)
+}
+
+// DeleteProject는 프로젝트 파일과 인덱스 항목을 제거합니다.
+// 활성 프로젝트를 지우면 남은 것 중 updatedAt 최신으로 활성을 재지정합니다(없으면 빈 문자열).
+func (a *App) DeleteProject(id string) error {
+	idx, err := readIndex()
+	if err != nil {
+		return err
+	}
+	found := false
+	next := make([]ProjectMeta, 0, len(idx.Projects))
+	for _, p := range idx.Projects {
+		if p.ID == id {
+			found = true
+			continue
+		}
+		next = append(next, p)
+	}
+	if !found {
+		return fmt.Errorf("프로젝트를 찾을 수 없습니다: %s", id)
+	}
+	idx.Projects = next
+	if idx.ActiveID == id {
+		idx.ActiveID = ""
+		for _, p := range idx.Projects {
+			if idx.ActiveID == "" || p.UpdatedAt > metaByID(idx.Projects, idx.ActiveID).UpdatedAt {
+				idx.ActiveID = p.ID
+			}
+		}
+	}
+	if err := writeIndex(idx); err != nil {
+		return err
+	}
+	path, err := config.ProjectPath(id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func metaByID(list []ProjectMeta, id string) ProjectMeta {
+	for _, p := range list {
+		if p.ID == id {
+			return p
+		}
+	}
+	return ProjectMeta{}
+}
