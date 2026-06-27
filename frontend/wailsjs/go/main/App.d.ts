@@ -7,13 +7,19 @@ export function CancelGeneration():Promise<void>;
 
 export function ClearSession():Promise<void>;
 
+export function CreateProject(arg1:string):Promise<main.ProjectMeta>;
+
 export function DeleteGalleryImage(arg1:string):Promise<void>;
+
+export function DeleteProject(arg1:string):Promise<void>;
 
 export function ExportProject(arg1:main.ExportArgs):Promise<string>;
 
 export function GenerateCharacter(arg1:main.GenerateCharacterArgs):Promise<string>;
 
 export function GenerateState(arg1:main.GenerateStateArgs):Promise<main.StateResult>;
+
+export function GetActiveProject():Promise<string>;
 
 export function GetGalleryPath():Promise<string>;
 
@@ -27,9 +33,13 @@ export function ListGalleryImages():Promise<Array<main.GalleryImage>>;
 
 export function ListPresets():Promise<Array<sprite.PresetInfo>>;
 
+export function ListProjects():Promise<Array<main.ProjectMeta>>;
+
 export function LoadImageFull(arg1:string):Promise<string>;
 
 export function LoadImageThumb(arg1:string,arg2:number):Promise<string>;
+
+export function LoadProject(arg1:string):Promise<string>;
 
 export function LoadSession():Promise<string>;
 
@@ -41,12 +51,18 @@ export function PickImage():Promise<string>;
 
 export function ReExtractState(arg1:main.ReExtractArgs):Promise<main.StateResult>;
 
+export function RenameProject(arg1:string,arg2:string):Promise<void>;
+
 export function RevealInFinder(arg1:string):Promise<void>;
+
+export function SaveProject(arg1:string,arg2:string):Promise<void>;
 
 export function SaveProviderKey(arg1:string,arg2:string):Promise<void>;
 
 export function SaveProviderModel(arg1:string,arg2:string):Promise<void>;
 
 export function SaveSession(arg1:string):Promise<void>;
+
+export function SetActiveProject(arg1:string):Promise<void>;
 
 export function SetProvider(arg1:string):Promise<void>;

@@ -71,6 +71,14 @@ export interface PresetInfo {
   loop: boolean;
 }
 
+// 백엔드 main.ProjectMeta와 동일 구조 (ListProjects/CreateProject 응답)
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const STATE_PRESETS: StatePreset[] = [
   { name: "idle", label: "대기", frames: 4, fps: 6, loop: true, action: "subtle breathing idle in place" },
   { name: "walk", label: "걷기", frames: 6, fps: 10, loop: true, action: "side-view walking cycle facing right" },

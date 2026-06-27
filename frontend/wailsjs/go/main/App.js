@@ -10,8 +10,16 @@ export function ClearSession() {
   return window['go']['main']['App']['ClearSession']();
 }
 
+export function CreateProject(arg1) {
+  return window['go']['main']['App']['CreateProject'](arg1);
+}
+
 export function DeleteGalleryImage(arg1) {
   return window['go']['main']['App']['DeleteGalleryImage'](arg1);
+}
+
+export function DeleteProject(arg1) {
+  return window['go']['main']['App']['DeleteProject'](arg1);
 }
 
 export function ExportProject(arg1) {
@@ -24,6 +32,10 @@ export function GenerateCharacter(arg1) {
 
 export function GenerateState(arg1) {
   return window['go']['main']['App']['GenerateState'](arg1);
+}
+
+export function GetActiveProject() {
+  return window['go']['main']['App']['GetActiveProject']();
 }
 
 export function GetGalleryPath() {
@@ -50,12 +62,20 @@ export function ListPresets() {
   return window['go']['main']['App']['ListPresets']();
 }
 
+export function ListProjects() {
+  return window['go']['main']['App']['ListProjects']();
+}
+
 export function LoadImageFull(arg1) {
   return window['go']['main']['App']['LoadImageFull'](arg1);
 }
 
 export function LoadImageThumb(arg1, arg2) {
   return window['go']['main']['App']['LoadImageThumb'](arg1, arg2);
+}
+
+export function LoadProject(arg1) {
+  return window['go']['main']['App']['LoadProject'](arg1);
 }
 
 export function LoadSession() {
@@ -78,8 +98,16 @@ export function ReExtractState(arg1) {
   return window['go']['main']['App']['ReExtractState'](arg1);
 }
 
+export function RenameProject(arg1, arg2) {
+  return window['go']['main']['App']['RenameProject'](arg1, arg2);
+}
+
 export function RevealInFinder(arg1) {
   return window['go']['main']['App']['RevealInFinder'](arg1);
+}
+
+export function SaveProject(arg1, arg2) {
+  return window['go']['main']['App']['SaveProject'](arg1, arg2);
 }
 
 export function SaveProviderKey(arg1, arg2) {
@@ -92,6 +120,10 @@ export function SaveProviderModel(arg1, arg2) {
 
 export function SaveSession(arg1) {
   return window['go']['main']['App']['SaveSession'](arg1);
+}
+
+export function SetActiveProject(arg1) {
+  return window['go']['main']['App']['SetActiveProject'](arg1);
 }
 
 export function SetProvider(arg1) {
