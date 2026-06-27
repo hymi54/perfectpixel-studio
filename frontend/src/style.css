@@ -219,3 +219,55 @@ input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.1); }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes toast-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+
+/* 프로젝트 드롭다운 */
+.project-menu {
+  position: relative;
+}
+.project-menu-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 200px;
+  padding: 4px;
+  border-radius: 10px;
+  background: #1a1c26;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.project-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #e8e9ef;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.project-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.project-menu-danger {
+  color: #ff6b6b;
+}
+.project-menu-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-menu-gap {
+  display: inline-block;
+  width: 12px;
+}
+.project-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: rgba(255, 255, 255, 0.1);
+}
