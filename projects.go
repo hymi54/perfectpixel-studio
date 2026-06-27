@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -238,4 +239,66 @@ func metaByID(list []ProjectMeta, id string) ProjectMeta {
 		}
 	}
 	return ProjectMeta{}
+}
+
+// migrateLegacySession은 projects 인덱스가 없을 때 레거시 session.json을
+// 첫 프로젝트로 이관합니다. 인덱스가 이미 있으면 아무것도 하지 않습니다(멱등).
+func (a *App) migrateLegacySession() error {
+	idxPath, err := config.ProjectIndexPath()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(idxPath); err == nil {
+		return nil // 이미 인덱스 존재 → 멱등 종료
+	}
+
+	sessPath, err := config.SessionPath()
+	if err != nil {
+		return err
+	}
+	info, statErr := os.Stat(sessPath)
+	if statErr != nil {
+		// 레거시 세션 없음 → 빈 인덱스만 생성해 이후 멱등 보장
+		return writeIndex(projectIndex{V: 1})
+	}
+
+	data, err := os.ReadFile(sessPath)
+	if err != nil {
+		return err
+	}
+	now := info.ModTime().UTC().Format(time.RFC3339)
+	meta := ProjectMeta{
+		ID:        newProjectID(),
+		Name:      projectNameFromSession(data),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	pPath, err := config.ProjectPath(meta.ID)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(pPath, data, 0o600); err != nil {
+		return err
+	}
+	if err := writeIndex(projectIndex{V: 1, ActiveID: meta.ID, Projects: []ProjectMeta{meta}}); err != nil {
+		return err
+	}
+	// 원본 보존(삭제 대신 리네임)
+	_ = os.Rename(sessPath, sessPath+".migrated")
+	return nil
+}
+
+// projectNameFromSession은 세션 페이로드의 character.name을 프로젝트 이름으로 씁니다.
+func projectNameFromSession(data []byte) string {
+	var s struct {
+		Character struct {
+			Name string `json:"name"`
+		} `json:"character"`
+	}
+	if err := json.Unmarshal(data, &s); err == nil {
+		if n := strings.TrimSpace(s.Character.Name); n != "" {
+			return n
+		}
+	}
+	return "프로젝트 1"
 }

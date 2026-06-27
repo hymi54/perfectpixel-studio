@@ -1,7 +1,11 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"perfectpixel/internal/config"
 )
 
 // TestProjectCRUD는 생성→목록→로드→저장→활성 전환의 핵심 흐름을 검증합니다.
@@ -128,5 +132,68 @@ func TestProjectRenameDelete(t *testing.T) {
 	}
 	if a.GetActiveProject() != "" {
 		t.Fatalf("활성이 비어있지 않음: %s", a.GetActiveProject())
+	}
+}
+
+// TestMigrateLegacySession은 레거시 session.json이 첫 프로젝트로 멱등 이관되는지 검증합니다.
+func TestMigrateLegacySession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := NewApp()
+
+	sessPath, err := config.SessionPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(sessPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payload := `{"v":1,"character":{"name":"apple-infantry"},"cellSize":256,"states":[]}`
+	if err := os.WriteFile(sessPath, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.migrateLegacySession(); err != nil {
+		t.Fatalf("이관 실패: %v", err)
+	}
+
+	list := a.ListProjects()
+	if len(list) != 1 || list[0].Name != "apple-infantry" {
+		t.Fatalf("이관 프로젝트 부정확: %+v", list)
+	}
+	if a.GetActiveProject() != list[0].ID {
+		t.Fatalf("활성 미지정")
+	}
+	if got := a.LoadProject(list[0].ID); got != payload {
+		t.Fatalf("페이로드 불일치: %q", got)
+	}
+	if _, err := os.Stat(sessPath); !os.IsNotExist(err) {
+		t.Fatalf("원본 session.json이 남아있음")
+	}
+	if _, err := os.Stat(sessPath + ".migrated"); err != nil {
+		t.Fatalf(".migrated 백업 없음: %v", err)
+	}
+
+	// 멱등성: 재실행해도 변화 없음
+	if err := a.migrateLegacySession(); err != nil {
+		t.Fatalf("재이관 실패: %v", err)
+	}
+	if len(a.ListProjects()) != 1 {
+		t.Fatalf("재이관 후 프로젝트 수 변함: %d", len(a.ListProjects()))
+	}
+}
+
+// TestMigrateNoLegacy는 레거시 세션이 없을 때 빈 인덱스만 생성됨을 검증합니다.
+func TestMigrateNoLegacy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := NewApp()
+	if err := a.migrateLegacySession(); err != nil {
+		t.Fatalf("이관 실패: %v", err)
+	}
+	if len(a.ListProjects()) != 0 {
+		t.Fatalf("레거시 없는데 프로젝트 생김")
+	}
+	idxPath, _ := config.ProjectIndexPath()
+	if _, err := os.Stat(idxPath); err != nil {
+		t.Fatalf("인덱스 미생성: %v", err)
 	}
 }

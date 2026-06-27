@@ -38,6 +38,10 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	if err := a.migrateLegacySession(); err != nil {
+		// 이관 실패는 치명적이지 않음 — 로그만 남기고 계속
+		fmt.Println("프로젝트 이관 실패:", err)
+	}
 }
 
 // provider는 현재 활성 프로바이더 클라이언트를 반환합니다.
