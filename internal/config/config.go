@@ -68,6 +68,33 @@ func GalleryDir() (string, error) {
 	return filepath.Join(dir, "perfectpixel", "gallery"), nil
 }
 
+// ProjectsDir는 프로젝트별 세션 파일이 보관되는 디렉토리입니다.
+func ProjectsDir() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "perfectpixel", "projects"), nil
+}
+
+// ProjectIndexPath는 프로젝트 메타 인덱스 파일 경로입니다.
+func ProjectIndexPath() (string, error) {
+	dir, err := ProjectsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "index.json"), nil
+}
+
+// ProjectPath는 주어진 id의 프로젝트 세션 파일 경로입니다.
+func ProjectPath(id string) (string, error) {
+	dir, err := ProjectsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, id+".json"), nil
+}
+
 // Load는 설정을 읽고 레거시 마이그레이션 및 환경변수 폴백을 적용합니다.
 func Load() Settings {
 	var s Settings
